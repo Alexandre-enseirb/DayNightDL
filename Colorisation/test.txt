@@ -1,0 +1,2 @@
+-appliquer une transformation (mise  à l'echelle...?)
+-filtrage -> trouver le filtre adéquat pour toutes les images 
