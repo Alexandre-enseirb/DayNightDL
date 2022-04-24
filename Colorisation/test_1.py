@@ -18,16 +18,27 @@ from skimage import color
 import torchvision.models as models
 
 import torchvision.transforms as transforms
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
 import matplotlib.pyplot as plt
 from torchvision.datasets import ImageFolder 
 
 import glob
 import cv2
 import numpy as np
-import torch
-from torch.utils.data import Dataset, DataLoader
 
+num_epochs = 30
+batch_size = 5
+learning_rate = 1e-3
+use_gpu = True
+
+def import_image(img):
+    return torch.FloatTensor(np.transpose(color.rgb2lab(np.array(img)), (2, 0, 1)))
+    
+img_transform = transforms.Compose([
+    transforms.Lambda(import_image),
+    transforms.Resize(100) #resize 1080x1920 ->112x199
+])
+    
 class CustomDataset(Dataset):
     def __init__(self):
         self.imgs_path = "DB_10/"
@@ -43,10 +54,10 @@ class CustomDataset(Dataset):
             for img_path2 in glob.glob(class_path_2 + "/*.png"):
                 if(img_path1[13:19] == img_path2[15:21]):
                     self.data.append([img_path1, class_name_1, img_path2, class_name_2])
+        self.data = tuple(self.data)
         print(self.data)
         
         self.class_map = {"NIGHT" : 1, "DAY": 0}
-        self.img_dim = (416, 416)
         
     def __len__(self):
         return len(self.data)
@@ -55,18 +66,12 @@ class CustomDataset(Dataset):
         img_path1, class_name1, img_path2, class_name2 = self.data[idx]
         img1 = cv2.imread(img_path1)
         img2 = cv2.imread(img_path2)
-
-        img1 = cv2.resize(img1, self.img_dim)
-        img2 = cv2.resize(img2, self.img_dim)
-
         class_id1 = self.class_map[class_name1]
         class_id2 = self.class_map[class_name2]
-
-
-        img_tensor1 = torch.FloatTensor(np.transpose(color.rgb2lab(np.array(img1)), (2, 0, 1)))
-        img_tensor2 = torch.FloatTensor(np.transpose(color.rgb2lab(np.array(img2)), (2, 0, 1)))
-        img_tensor1.resize(100)
-        img_tensor2.resize(100)
+        img_tensor1 = torch.tensor(img1)
+        img_tensor2 = torch.tensor(img2)
+        img_tensor1 = img_transform(img_tensor1)
+        img_tensor2 = img_transform(img_tensor2)
         class_id1 = torch.tensor([class_id1])
         class_id2 = torch.tensor([class_id2])
 
@@ -85,23 +90,22 @@ import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 
 # converts the PIL image to a pytorch tensor containing an LAB image
-def import_image(img):
-    return torch.FloatTensor(np.transpose(color.rgb2lab(np.array(img)), (2, 0, 1)))
-    
-img_transform = transforms.Compose([
-    transforms.Lambda(import_image),
-    transforms.Resize(100) #resize 1080x1920 ->112x199
-])
+
    # " redefinir la méthode getitem pour avoir deux paires d'images (jour,nuit) " 
 train_dataset = CustomDataset() 
 #%%
 #sortie :    (Tuple[List[str], Dict[str, int]])
 train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+
 #%%
-test_dataset = ImageFolder('DB_10/NIGHT', transform=img_transform ) 
-test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 dataiter = iter(train_dataloader)
-images, labels = dataiter.next()
+image1, label1, image2, label2 = dataiter.next()
+
+#%%
+test_dataset = ImageFolder('DB_10', transform=img_transform ) 
+test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
+
+#%%
 
 class ColorNet(nn.Module):
     def __init__(self, d=128):
@@ -161,16 +165,16 @@ for epoch in range(num_epochs):
     train_loss_avg.append(0)
     num_batches = 0
     
-    for lab_batch, _ in train_dataloader:
+    for lab_batch_day, label1 , lab_batch_night, label2 in train_dataloader:
         
-        lab_batch = lab_batch.to(device)
+        lab_batch_day = lab_batch_day.to(device)
         
         # apply the color net to the luminance component of the Lab images
         # to get the color (ab) components
-        predicted_ab_batch = cnet(lab_batch[:, :, :, :])
+        predicted_ab_batch = cnet(lab_batch_day[:, :, :, :])
         
         # loss is the L2 error to the actual color (ab) components
-        loss = F.mse_loss(predicted_ab_batch, lab_batch[:, 1:3, 4:, 1:])
+        loss = F.mse_loss(predicted_ab_batch, lab_batch_day[:, :, 4:, 1:])
         
         # backpropagation
         optimizer.zero_grad()
