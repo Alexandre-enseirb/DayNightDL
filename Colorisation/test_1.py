@@ -26,8 +26,8 @@ import glob
 import cv2
 import numpy as np
 
-num_epochs = 30
-batch_size = 5
+num_epochs = 40
+batch_size = 200
 learning_rate = 1e-3
 use_gpu = True
 
@@ -49,10 +49,15 @@ class CustomDataset(Dataset):
         class_path_2 = file_list[1]
         class_name_1 = class_path_1.split("/")[-1]
         class_name_2 = class_path_2.split("/")[-1]
-
+        L = []
         for img_path1 in glob.glob(class_path_1+ "/*.png"):
-            for img_path2 in glob.glob(class_path_2 + "/*.png"):
-                if(img_path1[13:19] == img_path2[15:21]):
+            for img_path2 in glob.glob(class_path_2 + "/*.png"):           
+                start1 = img_path1.find('_d') + 3
+                end1 = img_path1.find('.png', start1)
+                start2 = img_path2.find('_d') + 3
+                end2 = img_path2.find('.png', start2)
+                if(img_path1[start1:end1] == img_path2[start2:end2] and (img_path1[start1:end1] not in L)):
+                    L.append(img_path1[start1:end1])
                     self.data.append([img_path1, class_name_1, img_path2, class_name_2])
         self.data = tuple(self.data)
         print(self.data)
@@ -78,8 +83,51 @@ class CustomDataset(Dataset):
         return img_tensor1, class_id1, img_tensor2, class_id2
 
 
-num_epochs = 30
-batch_size = 5
+class CustomDataset1(Dataset):
+    def __init__(self):
+        self.imgs_path = "../DB_10/"
+        file_list = glob.glob(self.imgs_path + "*")
+        print(file_list)
+        self.data = []
+        class_path_1 = file_list[0]
+        class_path_2 = file_list[1]
+        class_name_1 = class_path_1.split("/")[-1]
+        class_name_2 = class_path_2.split("/")[-1]
+        L = []
+        for img_path1 in glob.glob(class_path_1+ "/*.png"):
+            for img_path2 in glob.glob(class_path_2 + "/*.png"): 
+                start1 = img_path1.find('town') + 3
+                end1 = img_path1.find('.png', start1)
+                start2 = img_path2.find('town') + 3
+                end2 = img_path2.find('.png', start2)
+                print(img_path2[start2:end2], img_path1[start1:end1])
+
+                if(img_path1[start1:end1] == img_path2[start2:end2] and (img_path1[start1:end1] not in L)):
+                    L.append(img_path1[start1:end1])
+                    self.data.append([img_path1, class_name_1, img_path2, class_name_2])
+        self.data = tuple(self.data)
+        print(self.data)
+        
+        self.class_map = {"NIGHT" : 1, "DAY": 0}
+        
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        img_path1, class_name1, img_path2, class_name2 = self.data[idx]
+        img1 = cv2.imread(img_path1)
+        img2 = cv2.imread(img_path2)
+        class_id1 = self.class_map[class_name1]
+        class_id2 = self.class_map[class_name2]
+        img_tensor1 = torch.tensor(img1)
+        img_tensor2 = torch.tensor(img2)
+        img_tensor1 = img_transform(img_tensor1)
+        img_tensor2 = img_transform(img_tensor2)
+        class_id1 = torch.tensor([class_id1])
+        class_id2 = torch.tensor([class_id2])
+
+        return img_tensor1, class_id1, img_tensor2, class_id2
+
 learning_rate = 1e-3
 use_gpu = True
 
@@ -102,7 +150,7 @@ dataiter = iter(train_dataloader)
 image1, label1, image2, label2 = dataiter.next()
 
 #%%
-test_dataset = ImageFolder('DB_10', transform=img_transform ) 
+test_dataset = CustomDataset1()
 test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
 #%%
@@ -167,14 +215,15 @@ for epoch in range(num_epochs):
     
     for lab_batch_day, label1 , lab_batch_night, label2 in train_dataloader:
         
+        lab_batch_night = lab_batch_night.to(device)
         lab_batch_day = lab_batch_day.to(device)
-        
+
         # apply the color net to the luminance component of the Lab images
         # to get the color (ab) components
-        predicted_ab_batch = cnet(lab_batch_day[:, :, :, :])
+        predicted_batch = cnet(lab_batch_night[:, :, :, :])
         
         # loss is the L2 error to the actual color (ab) components
-        loss = F.mse_loss(predicted_ab_batch, lab_batch_day[:, :, 4:, 1:])
+        loss = F.mse_loss(predicted_batch, lab_batch_day[:, :, 4:, 1:])
         
         # backpropagation
         optimizer.zero_grad()
@@ -203,25 +252,25 @@ plt.show()
 cnet.eval()
 #%%
 test_loss_avg, num_batches = 0, 0
-for lab_batch, _ in test_dataloader:
+for lab_batch1, day, lab_batch2, night in test_dataloader:
 
     with torch.no_grad():
 
-        lab_batch = lab_batch.to(device)
-
+        lab_batch2 = lab_batch2.to(device)
+        lab_batch1 = lab_batch1.to(device)
         # apply the color net to the luminance component of the Lab images
         # to get the color (ab) components
-        predicted_ab_batch = cnet(255 - lab_batch[:, 0:1, :, :])
+        predicted_ab_batch = cnet(lab_batch2[:, :, :, :])
         
         # loss is the L2 error to the actual color (ab) components
-        loss = F.mse_loss(predicted_ab_batch, lab_batch[:, 1:3, 4:, 1:])
+        loss = F.mse_loss(predicted_ab_batch, lab_batch1[:, :, 4:, 1:])
 
         test_loss_avg += loss.item()
         num_batches += 1
     
 test_loss_avg /= num_batches
 print('average loss: %f' % (test_loss_avg))
-
+#%%
 import numpy as np
 from skimage import color, io
 
@@ -234,16 +283,14 @@ with torch.no_grad():
 
     # pick a random subset of images from the test set
     image_inds = np.random.choice(len(test_dataset), 3)
-    lab_batch = torch.stack([test_dataset[i][0] for i in image_inds])
+    lab_batch = torch.stack([test_dataset[i][2] for i in image_inds])
     lab_batch = lab_batch.to(device)
 
     # predict colors (ab channels)
-    predicted_ab_batch = cnet(100-lab_batch[:, 0:1, :, :])
-    max = lab_batch[:,0:1, 4:, 1:].max()
-    predicted_lab_batch = torch.cat([100-lab_batch[:,0:1, 4:, 1:], predicted_ab_batch], dim=1)
+    predicted_batch = cnet(lab_batch[:, :, :, :])
 
     lab_batch = lab_batch.cpu()
-    predicted_lab_batch = predicted_lab_batch.cpu()
+    predicted_batch = predicted_batch.cpu()
 
     # convert to rgb
     rgb_batch = []
@@ -251,7 +298,7 @@ with torch.no_grad():
     for i in range(lab_batch.size(0)):
         rgb_img = color.lab2rgb(np.transpose(lab_batch[i, :, :, :].detach().numpy().astype('float64'), (1, 2, 0)))
         rgb_batch.append(torch.FloatTensor(np.transpose(rgb_img, (2, 0, 1))))
-        predicted_rgb_img = color.lab2rgb(np.transpose(predicted_lab_batch[i, :, :, :].detach().numpy().astype('float64'), (1, 2, 0)))
+        predicted_rgb_img = color.lab2rgb(np.transpose(predicted_batch[i, :, :, :].detach().numpy().astype('float64'), (1, 2, 0)))
         predicted_rgb_batch.append(torch.FloatTensor(np.transpose(predicted_rgb_img, (2, 0, 1))))
 
     # plot images
@@ -261,4 +308,4 @@ with torch.no_grad():
     ax[1].imshow(np.transpose(torchvision.utils.make_grid(torch.stack(rgb_batch), nrow=5).numpy(), (1, 2, 0)))
     ax[1].title.set_text('original')
     plt.show()
-
+    
