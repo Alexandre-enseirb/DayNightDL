@@ -20,28 +20,55 @@ import torchvision.models as models
 import torchvision.transforms as transforms
 from torch.utils.data import Dataset, DataLoader
 import matplotlib.pyplot as plt
-from torchvision.datasets import ImageFolder 
+from torchvision.datasets import ImageFolder
 
 import glob
 import cv2
 import numpy as np
 
+
 num_epochs = 40
-batch_size = 200
-learning_rate = 1e-3
+batch_size = 2
+learning_rate = 1e-2
 use_gpu = True
 
+# set the following var to True to run faster (/!\ BREAKS IF NO WEIGHTS STORED)
+use_saved = False
+
+def imshow(tensor, title=None, transpose=True):
+    """
+    converts a tensor into a PIL image and displays it
+    Tensor has to be shaped [1,c,h,w] or [c,h,w]
+    """
+
+    # reducing dimension
+    if len(tensor.shape)==4:
+        tensor = tensor[0,:,:,:]
+    if tensor.requires_grad:
+        tensor = tensor.detach()
+    img = tensor.numpy()
+    print("Shape: {}".format(img.shape))
+    if transpose:
+        img = np.transpose(img,(1,2,0))
+
+    plt.figure()
+    plt.imshow(img)
+    if not title is None:
+        plt.title(title)
+
+
+
 def import_image(img):
-    return torch.FloatTensor(np.transpose(color.rgb2lab(np.array(img)), (2, 0, 1)))
-    
+    return torch.FloatTensor(np.transpose(np.array(img)/255, (2, 0, 1)))
+
 img_transform = transforms.Compose([
     transforms.Lambda(import_image),
     transforms.Resize(100) #resize 1080x1920 ->112x199
 ])
-    
+
 class CustomDataset(Dataset):
     def __init__(self):
-        self.imgs_path = "DB_10/"
+        self.imgs_path = "../DB_10/"
         file_list = glob.glob(self.imgs_path + "*")
         print(file_list)
         self.data = []
@@ -51,7 +78,7 @@ class CustomDataset(Dataset):
         class_name_2 = class_path_2.split("/")[-1]
         L = []
         for img_path1 in glob.glob(class_path_1+ "/*.png"):
-            for img_path2 in glob.glob(class_path_2 + "/*.png"):           
+            for img_path2 in glob.glob(class_path_2 + "/*.png"):
                 start1 = img_path1.find('_d') + 3
                 end1 = img_path1.find('.png', start1)
                 start2 = img_path2.find('_d') + 3
@@ -61,12 +88,12 @@ class CustomDataset(Dataset):
                     self.data.append([img_path1, class_name_1, img_path2, class_name_2])
         self.data = tuple(self.data)
         print(self.data)
-        
+
         self.class_map = {"NIGHT" : 1, "DAY": 0}
-        
+
     def __len__(self):
         return len(self.data)
-    
+
     def __getitem__(self, idx):
         img_path1, class_name1, img_path2, class_name2 = self.data[idx]
         img1 = cv2.imread(img_path1)
@@ -85,9 +112,10 @@ class CustomDataset(Dataset):
 
 class CustomDataset1(Dataset):
     def __init__(self):
+
         self.imgs_path = "../DB_10/"
+
         file_list = glob.glob(self.imgs_path + "*")
-        print(file_list)
         self.data = []
         class_path_1 = file_list[0]
         class_path_2 = file_list[1]
@@ -95,7 +123,7 @@ class CustomDataset1(Dataset):
         class_name_2 = class_path_2.split("/")[-1]
         L = []
         for img_path1 in glob.glob(class_path_1+ "/*.png"):
-            for img_path2 in glob.glob(class_path_2 + "/*.png"): 
+            for img_path2 in glob.glob(class_path_2 + "/*.png"):
                 start1 = img_path1.find('town') + 3
                 end1 = img_path1.find('.png', start1)
                 start2 = img_path2.find('town') + 3
@@ -107,16 +135,24 @@ class CustomDataset1(Dataset):
                     self.data.append([img_path1, class_name_1, img_path2, class_name_2])
         self.data = tuple(self.data)
         print(self.data)
-        
+
         self.class_map = {"NIGHT" : 1, "DAY": 0}
-        
+
     def __len__(self):
         return len(self.data)
-    
+
     def __getitem__(self, idx):
         img_path1, class_name1, img_path2, class_name2 = self.data[idx]
+
+        # loads images as (B,G,R)
         img1 = cv2.imread(img_path1)
         img2 = cv2.imread(img_path2)
+
+        # swap as (R,G,B)
+        img1[:,:,[0,2]] = img1[:,:,[2,0]]
+        img2[:,:,[0,2]] = img2[:,:,[2,0]]
+
+
         class_id1 = self.class_map[class_name1]
         class_id2 = self.class_map[class_name2]
         img_tensor1 = torch.tensor(img1)
@@ -139,26 +175,26 @@ from torch.utils.data import DataLoader
 
 # converts the PIL image to a pytorch tensor containing an LAB image
 
-   # " redefinir la méthode getitem pour avoir deux paires d'images (jour,nuit) " 
-train_dataset = CustomDataset() 
+   # " redefinir la méthode getitem pour avoir deux paires d'images (jour,nuit) "
+#train_dataset = CustomDataset()
 #%%
 #sortie :    (Tuple[List[str], Dict[str, int]])
-train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+#train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
 #%%
-dataiter = iter(train_dataloader)
-image1, label1, image2, label2 = dataiter.next()
+#dataiter = iter(train_dataloader)
+#image1, label1, image2, label2 = dataiter.next()
 
 #%%
 test_dataset = CustomDataset1()
-test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
+#test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
 #%%
 
 class ColorNet(nn.Module):
     def __init__(self, d=128):
         super(ColorNet, self).__init__()
-        
+
         self.conv1 = nn.Conv2d(3, 32, kernel_size=4, stride=2, padding=1) # out: 32 x 16 x 16
         self.conv1_bn = nn.BatchNorm2d(32)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=1) # out: 64 x 8 x 8
@@ -189,8 +225,9 @@ class ColorNet(nn.Module):
         x = self.tconv3(x)
 
         return x
-    
+
 cnet = ColorNet()
+
 print(cnet)
 # %%
 device = torch.device("cuda:0" if use_gpu and torch.cuda.is_available() else "cpu")
@@ -208,36 +245,38 @@ cnet.train()
 train_loss_avg = []
 #%%
 
-print('Training ...')
-for epoch in range(num_epochs):
-    train_loss_avg.append(0)
-    num_batches = 0
-    
-    for lab_batch_day, label1 , lab_batch_night, label2 in train_dataloader:
-        
-        lab_batch_night = lab_batch_night.to(device)
-        lab_batch_day = lab_batch_day.to(device)
+if not use_saved:
+    print('Training ...')
+    for epoch in range(num_epochs):
+        train_loss_avg.append(0)
+        num_batches = 0
 
-        # apply the color net to the luminance component of the Lab images
-        # to get the color (ab) components
-        predicted_batch = cnet(lab_batch_night[:, :, :, :])
-        
-        # loss is the L2 error to the actual color (ab) components
-        loss = F.mse_loss(predicted_batch, lab_batch_day[:, :, 4:, 1:])
-        
-        # backpropagation
-        optimizer.zero_grad()
-        loss.backward()
-        
-        # one step of the optmizer (using the gradients from backpropagation)
-        optimizer.step()
-        
-        train_loss_avg[-1] += loss.item()
-        num_batches += 1
-        
-    train_loss_avg[-1] /= num_batches
-    print('Epoch [%d / %d] average reconstruction error: %f' % (epoch+1, num_epochs, train_loss_avg[-1]))
+        for lab_batch_day, label1 , lab_batch_night, label2 in train_dataloader:
 
+            lab_batch_night = lab_batch_night.to(device)
+            lab_batch_day = lab_batch_day.to(device)
+            # apply the color net to the luminance component of the Lab images
+            # to get the color (ab) components
+            predicted_batch = cnet(lab_batch_night[:, :, :, :])
+
+            # loss is the L2 error to the actual color (ab) components
+            loss = F.mse_loss(predicted_batch, lab_batch_day[:, :, 4:, 1:])
+
+            # backpropagation
+            optimizer.zero_grad()
+            loss.backward()
+
+            # one step of the optmizer (using the gradients from backpropagation)
+            optimizer.step()
+
+            train_loss_avg[-1] += loss.item()
+            num_batches += 1
+
+        train_loss_avg[-1] /= num_batches
+        print('Epoch [%d / %d] average reconstruction error: %f' % (epoch+1, num_epochs, train_loss_avg[-1]))
+else:
+    print("Loading...")
+    cnet.load_state_dict(torch.load("cnet.pt"))
 
 import matplotlib.pyplot as plt
 plt.ion()
@@ -261,28 +300,46 @@ for lab_batch1, day, lab_batch2, night in test_dataloader:
         # apply the color net to the luminance component of the Lab images
         # to get the color (ab) components
         predicted_ab_batch = cnet(lab_batch2[:, :, :, :])
-        
+
         # loss is the L2 error to the actual color (ab) components
         loss = F.mse_loss(predicted_ab_batch, lab_batch1[:, :, 4:, 1:])
 
         test_loss_avg += loss.item()
         num_batches += 1
-    
+
 test_loss_avg /= num_batches
 print('average loss: %f' % (test_loss_avg))
+
 #%%
 import numpy as np
 from skimage import color, io
 
 import matplotlib.pyplot as plt
-plt.ion()
+#plt.ion()
 #%%
 import torchvision.utils
 
-with torch.no_grad():
+print("Saving weights")
+torch.save(cnet.state_dict(), "cnet.pt")
 
+
+
+with torch.no_grad():
+    # quick test
+    im = test_dataset[0][0]
+
+    imshow(im, title="Before transform")
+
+    im2 = cnet(im.unsqueeze(0))
+
+    imshow(im2, title="After transform")
+
+    plt.show()
     # pick a random subset of images from the test set
+    """ PREVIOUS VERSION. UNCOMMENT TO TEST. MIGHT BREAK.
     image_inds = np.random.choice(len(test_dataset), 3)
+    print(image_inds)
+
     lab_batch = torch.stack([test_dataset[i][2] for i in image_inds])
     lab_batch = lab_batch.to(device)
 
@@ -307,5 +364,5 @@ with torch.no_grad():
     ax[0].title.set_text('re-colored')
     ax[1].imshow(np.transpose(torchvision.utils.make_grid(torch.stack(rgb_batch), nrow=5).numpy(), (1, 2, 0)))
     ax[1].title.set_text('original')
-    plt.show()
-    
+    plt.savefig("fig.png")
+    """
