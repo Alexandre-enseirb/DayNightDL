@@ -5,7 +5,7 @@ Created on Fri Apr  1 16:34:08 2022
 
 @edited by: onajibb 
 
-# https://colab.research.google.com/github/dair-ai/notebooks/blob/master/_notebooks/2020-03-18-pytorch_quick_start.ipynb
+original file : https://colab.research.google.com/github/dair-ai/notebooks/blob/master/_notebooks/2020-03-18-pytorch_quick_start.ipynb
 """
 
 import sys
